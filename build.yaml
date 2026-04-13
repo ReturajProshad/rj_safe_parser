@@ -1,0 +1,15 @@
+targets:
+  $default:
+    builders:
+      rj_safe_parser:rj_safe_parser:
+        enabled: true
+
+builders:
+  rj_safe_parser:
+    target: ":rj_safe_parser"
+    import: "package:rj_safe_parser/rj_builder.dart"
+    builder_factories: ["rjSafeParserBuilder"]
+    build_extensions: { ".dart": [".rj_safe_parser.g.part"] }
+    auto_apply: dependents
+    build_to: cache
+    applies_builders: ["source_gen|combining_builder"]

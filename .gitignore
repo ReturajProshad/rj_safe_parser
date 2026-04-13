@@ -1,0 +1,58 @@
+# ── Dart & Flutter ────────────────────────────────────────────────────────────
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+pubspec.lock
+
+# ── Build outputs ─────────────────────────────────────────────────────────────
+build/
+
+# ── Generated files (build_runner) ────────────────────────────────────────────
+*.g.dart
+*.g.part
+*.freezed.dart
+*.mocks.dart
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/settings.json
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+**/.DS_Store
+._*
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# ── Test & Coverage ───────────────────────────────────────────────────────────
+coverage/
+lcov.info
+*.lcov
+
+# ── Pub cache ─────────────────────────────────────────────────────────────────
+.pub-cache/
+.pub/
+
+# ── Logs & temp ───────────────────────────────────────────────────────────────
+*.log
+*.tmp
+*.temp
