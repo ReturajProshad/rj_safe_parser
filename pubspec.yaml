@@ -1,12 +1,10 @@
 name: rj_safe_parser
 description: >-
-  RJ Safe Parser — one annotation on the class, zero per-field boilerplate.
-  build_runner reads your Dart field types and generates fromMap(), toMap(),
-  and a full validation schema automatically. Inspired by Spring Boot's @Entity.
+  RJ Safe Parser: Annotation-based Dart generator for JSON parsing, mapping, and validation with zero boilerplate.
 version: 0.1.0
-homepage: https://github.com/rj/rj_safe_parser
-repository: https://github.com/rj/rj_safe_parser
-issue_tracker: https://github.com/rj/rj_safe_parser/issues
+homepage: https://github.com/ReturajProshad/rj_safe_parser
+repository: https://github.com/ReturajProshad/rj_safe_parser
+issue_tracker: https://github.com/ReturajProshad/rj_safe_parser/issues
 
 topics:
   - codegen
