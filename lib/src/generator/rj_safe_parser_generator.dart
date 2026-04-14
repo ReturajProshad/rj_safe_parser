@@ -53,7 +53,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     buf
       ..writeln('$className _\$${className}FromMap(Map<String, dynamic> map) {')
       ..writeln(
-          '  final parser = RjSafeMapParser(strict: $strict, dateFormat: $dateFormatExpr);')
+          '  final parser = const RjSafeMapParser(strict: $strict, dateFormat: $dateFormatExpr);')
       ..writeln('  final result = parser.parse(map, _\$${className}Schema);')
       ..writeln('  return $className(');
 
@@ -119,16 +119,16 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
   String _schemaExpression(DartType type) {
     final inner = _unwrap(type);
 
-    if (_isCore(inner, 'String')) return 'RjTypeSchema<String>()';
-    if (_isCore(inner, 'int')) return 'RjTypeSchema<int>()';
-    if (_isCore(inner, 'double')) return 'RjTypeSchema<double>()';
-    if (_isCore(inner, 'bool')) return 'RjTypeSchema<bool>()';
-    if (_isCore(inner, 'DateTime')) return 'RjTypeSchema<DateTime>()';
-    if (_isCore(inner, 'Uri')) return 'RjTypeSchema<Uri>()';
+    if (_isCore(inner, 'String')) return 'const RjTypeSchema<String>()';
+    if (_isCore(inner, 'int')) return 'const RjTypeSchema<int>()';
+    if (_isCore(inner, 'double')) return 'const RjTypeSchema<double>()';
+    if (_isCore(inner, 'bool')) return 'const RjTypeSchema<bool>()';
+    if (_isCore(inner, 'DateTime')) return 'const RjTypeSchema<DateTime>()';
+    if (_isCore(inner, 'Uri')) return 'const RjTypeSchema<Uri>()';
 
     if (inner is InterfaceType && inner.element.name == 'List') {
       final itemSchema = _schemaExpression(inner.typeArguments.first);
-      return 'RjListSchema($itemSchema)';
+      return 'const RjListSchema($itemSchema)';
     }
 
     if (inner is InterfaceType && _hasRjAnnotation(inner)) {
@@ -156,7 +156,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
         .map((f) => "'${f.name}': ${_schemaExpression(f.type)}")
         .join(',\n    ');
 
-    return 'RjObjectSchema({\n    $entries,\n  })';
+    return 'const RjObjectSchema({\n    $entries,\n  })';
   }
 
   // ── Cast expression (fromMap body) ────────────────────────────────────────

@@ -60,7 +60,8 @@ class RjSafeMapParser {
       final fieldSchema = entry.value;
       final fieldPath = _joinPath(parentPath, fieldName);
       final rawValue = source[fieldName]; // null if key absent
-      data[fieldName] = _coerceField(rawValue, fieldSchema, fieldPath, warnings);
+      data[fieldName] =
+          _coerceField(rawValue, fieldSchema, fieldPath, warnings);
     }
 
     return RjParseResult(data: data, warnings: warnings);
@@ -76,7 +77,9 @@ class RjSafeMapParser {
   ) {
     if (schema is RjTypeSchema) return _coerceType(raw, schema, path);
     if (schema is RjListSchema) return _coerceList(raw, schema, path, warnings);
-    if (schema is RjObjectSchema) return _coerceObject(raw, schema, path, warnings);
+    if (schema is RjObjectSchema) {
+      return _coerceObject(raw, schema, path, warnings);
+    }
     throw RjParseException(
       'Unsupported schema type: ${schema.runtimeType}',
       fieldPath: path,
@@ -84,9 +87,14 @@ class RjSafeMapParser {
   }
 
   dynamic _coerceType(dynamic raw, RjTypeSchema schema, String path) {
-    // Extract 'int' from 'RjTypeSchema<int>'
-    final typeName = _extractGenericParam(schema.toString());
-    final nullable = raw == null;
+    // Extract 'int' from 'RjTypeSchema<int>' or 'int?' from 'RjTypeSchema<int?>'
+    final typeParam = _extractGenericParam(schema.toString());
+    // Nullability comes from the declared type (T?), NOT from whether the
+    // raw value happens to be null. A null value for a required (non-?) field
+    // must throw, not silently return null.
+    final nullable = typeParam.endsWith('?');
+    final typeName =
+        nullable ? typeParam.substring(0, typeParam.length - 1) : typeParam;
     return rjCoerceValue(
       raw,
       typeName,

@@ -3,6 +3,7 @@
 ///
 /// The code generator emits a `Map<String, RjFieldSchema>` constant for
 /// every `@RjSafeParsable()` class. You never write these by hand.
+library;
 
 // ─── Base ─────────────────────────────────────────────────────────────────────
 
