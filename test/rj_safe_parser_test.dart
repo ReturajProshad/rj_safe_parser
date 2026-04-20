@@ -12,12 +12,12 @@ import 'package:rj_safe_parser/rj_safe_parser.dart';
 void main() {
   // ── Shared schema for most tests ──────────────────────────────────────────
   final schema = <String, RjFieldSchema>{
-    'id': const RjTypeSchema<int>(),
-    'name': const RjTypeSchema<String>(),
-    'score': const RjTypeSchema<double>(),
-    'isActive': const RjTypeSchema<bool>(),
-    'createdAt': const RjTypeSchema<DateTime>(),
-    'profileUrl': const RjTypeSchema<Uri>(),
+    'id': const RjTypeSchema<int>(jsonKey: 'id'),
+    'name': const RjTypeSchema<String>(jsonKey: 'name'),
+    'score': const RjTypeSchema<double>(jsonKey: 'score'),
+    'isActive': const RjTypeSchema<bool>(jsonKey: 'isActive'),
+    'createdAt': const RjTypeSchema<DateTime>(jsonKey: 'createdAt'),
+    'profileUrl': const RjTypeSchema<Uri>(jsonKey: 'profileUrl'),
   };
 
   Map<String, dynamic> base({
@@ -122,7 +122,7 @@ void main() {
   // ── Nullable fields ────────────────────────────────────────────────────────
   group('RjSafeMapParser — nullable fields', () {
     final nullableSchema = <String, RjFieldSchema>{
-      'name': const RjTypeSchema<String?>(),
+      'name': const RjTypeSchema<String?>(jsonKey: 'name'),
     };
     final parser = const RjSafeMapParser();
 
@@ -143,7 +143,7 @@ void main() {
     final parser = const RjSafeMapParser();
 
     test('List<String> passes through', () {
-      final s = {'tags': const RjListSchema(RjTypeSchema<String>())};
+      final s = {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')};
       final r = parser.parse({
         'tags': ['a', 'b', 'c']
       }, s);
@@ -151,13 +151,13 @@ void main() {
     });
 
     test('missing list → empty list (no exception)', () {
-      final s = {'tags': const RjListSchema(RjTypeSchema<String>())};
+      final s = {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')};
       final r = parser.parse({}, s);
       expect(r.data['tags'], isEmpty);
     });
 
     test('List<int> coerced from strings', () {
-      final s = {'ids': const RjListSchema(RjTypeSchema<int>())};
+      final s = {'ids': const RjListSchema(const RjTypeSchema<int>(jsonKey: 'ids'), jsonKey: 'ids')};
       final r = parser.parse({
         'ids': ['1', '2', '3']
       }, s);
@@ -167,17 +167,17 @@ void main() {
 
   // ── Nested object ──────────────────────────────────────────────────────────
   group('RjSafeMapParser — nested objects', () {
-    final addressSchema = <String, RjFieldSchema>{
-      'city': const RjTypeSchema<String>(),
-      'zip': const RjTypeSchema<int>(),
-    };
-    final userSchema = <String, RjFieldSchema>{
-      'id': const RjTypeSchema<int>(),
-      'address': RjObjectSchema(addressSchema),
-    };
     final parser = const RjSafeMapParser();
 
     test('nested object parsed correctly', () {
+      final addressSchema = <String, RjFieldSchema>{
+        'city': const RjTypeSchema<String>(jsonKey: 'city'),
+        'zip': const RjTypeSchema<int>(jsonKey: 'zip'),
+      };
+      final userSchema = <String, RjFieldSchema>{
+        'id': const RjTypeSchema<int>(jsonKey: 'id'),
+        'address': RjObjectSchema(addressSchema, jsonKey: 'address'),
+      };
       final r = parser.parse({
         'id': 1,
         'address': {'city': 'Dhaka', 'zip': '1212'},
@@ -189,6 +189,14 @@ void main() {
     });
 
     test('nested zip coerced from string to int', () {
+      final addressSchema = <String, RjFieldSchema>{
+        'city': const RjTypeSchema<String>(jsonKey: 'city'),
+        'zip': const RjTypeSchema<int>(jsonKey: 'zip'),
+      };
+      final userSchema = <String, RjFieldSchema>{
+        'id': const RjTypeSchema<int>(jsonKey: 'id'),
+        'address': RjObjectSchema(addressSchema, jsonKey: 'address'),
+      };
       final r = parser.parse({
         'id': 1,
         'address': {'city': 'Chittagong', 'zip': '4000'},
@@ -238,7 +246,7 @@ void main() {
     test('uncoercible string throws RjParseException', () {
       expect(
         () => parser
-            .parse({'id': 'not_a_number'}, {'id': const RjTypeSchema<int>()}),
+            .parse({'id': 'not_a_number'}, {'id': const RjTypeSchema<int>(jsonKey: 'id')}),
         throwsA(isA<RjParseException>()),
       );
     });
@@ -248,7 +256,7 @@ void main() {
         () => parser.parse(
           {'address': 'not_a_map'},
           {
-            'address': const RjObjectSchema({'city': RjTypeSchema<String>()})
+            'address': const RjObjectSchema({'city': const RjTypeSchema<String>(jsonKey: 'city')}, jsonKey: 'address')
           },
         ),
         throwsA(isA<RjParseException>()),
@@ -259,7 +267,7 @@ void main() {
       expect(
         () => parser.parse(
           {'tags': 'not_a_list'},
-          {'tags': const RjListSchema(RjTypeSchema<String>())},
+          {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')},
         ),
         throwsA(isA<RjParseException>()),
       );
@@ -337,6 +345,55 @@ void main() {
       final e = const RjParseException('bad value');
       expect(e.toString(), contains('bad value'));
       expect(e.toString(), isNot(contains('null')));
+    });
+  });
+
+  // ── @RjKey annotation (JSON key mapping) ───────────────────────────────────
+  group('RjSafeMapParser — @RjKey mapping', () {
+    final parser = const RjSafeMapParser();
+
+    test('snake_case JSON key maps to camelCase field', () {
+      final schema = <String, RjFieldSchema>{
+        'downloadUrl': const RjTypeSchema<String>(jsonKey: 'download_url'),
+      };
+      final r = parser.parse({
+        'download_url': 'https://example.com/image.jpg',
+      }, schema);
+      expect(r.data['downloadUrl'], equals('https://example.com/image.jpg'));
+    });
+
+    test('multiple snake_case keys map correctly', () {
+      final schema = <String, RjFieldSchema>{
+        'firstName': const RjTypeSchema<String>(jsonKey: 'first_name'),
+        'lastName': const RjTypeSchema<String>(jsonKey: 'last_name'),
+        'profileUrl': const RjTypeSchema<String>(jsonKey: 'profile_url'),
+      };
+      final r = parser.parse({
+        'first_name': 'Alice',
+        'last_name': 'Smith',
+        'profile_url': 'https://example.com/alice',
+      }, schema);
+      expect(r.data['firstName'], equals('Alice'));
+      expect(r.data['lastName'], equals('Smith'));
+      expect(r.data['profileUrl'], equals('https://example.com/alice'));
+    });
+
+    test('missing JSON key throws for required field', () {
+      final schema = <String, RjFieldSchema>{
+        'downloadUrl': const RjTypeSchema<String>(jsonKey: 'download_url'),
+      };
+      expect(
+        () => parser.parse({}, schema),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+
+    test('nullable field with custom key accepts missing key', () {
+      final schema = <String, RjFieldSchema>{
+        'nickname': const RjTypeSchema<String?>(jsonKey: 'nick_name'),
+      };
+      final r = parser.parse({}, schema);
+      expect(r.data['nickname'], isNull);
     });
   });
 }

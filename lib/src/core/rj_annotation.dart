@@ -35,3 +35,43 @@ class RjSafeParsable {
 
   const RjSafeParsable({this.strict = false, this.dateFormat});
 }
+
+/// Annotate individual fields to specify the JSON key name.
+/// Use this when the JSON key differs from the Dart field name
+/// (e.g., snake_case JSON → camelCase Dart).
+///
+/// Example:
+/// ```dart
+/// @RjSafeParsable()
+/// class Photo {
+///   final String id;
+///   final String author;
+///
+///   @RjKey('download_url')
+///   final String downloadUrl;
+///
+///   Photo({required this.id, required this.author, required this.downloadUrl});
+///
+///   factory Photo.fromMap(Map<String, dynamic> map) => _$PhotoFromMap(map);
+///   Map<String, dynamic> toMap() => _$PhotoToMap(this);
+/// }
+/// ```
+///
+/// The generated code will:
+///   • Read from JSON key `'download_url'`
+///   • Store in Dart field `downloadUrl`
+///   • Serialize back to `'download_url'` in `toMap()`
+class RjKey {
+  /// The exact key name as it appears in the JSON.
+  final String jsonKey;
+
+  /// Optional: if true, use snake_case conversion from field name.
+  /// Mutually exclusive with [jsonKey].
+  final bool snakeCase;
+
+  const RjKey(this.jsonKey, {this.snakeCase = false});
+
+  /// Convenience constructor for automatic snake_case conversion.
+  /// Field `downloadUrl` → JSON key `download_url`
+  const RjKey.snakeCase() : this('', snakeCase: true);
+}
