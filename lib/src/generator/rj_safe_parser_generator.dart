@@ -23,12 +23,21 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     }
 
     final className = element.name;
+    if (className == null) {
+      throw InvalidGenerationSourceError(
+        'Class name is null.',
+        element: element,
+      );
+    }
     final strict = annotation.read('strict').boolValue;
     final dateFormatRaw = annotation.peek('dateFormat')?.stringValue;
     final dateFormatExpr = dateFormatRaw != null ? "'$dateFormatRaw'" : 'null';
 
     final fields = element.fields
-        .where((f) => !f.isStatic && !f.isSynthetic && !f.name.startsWith('_'))
+        .where((f) {
+          final name = f.name;
+          return !f.isStatic && !f.isSynthetic && name != null && !name.startsWith('_');
+        })
         .toList();
 
     final fieldJsonKeys = <FieldElement, String>{};
@@ -47,14 +56,17 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
   }
 
   String _extractJsonKey(FieldElement field) {
-    for (final annotation in field.metadata) {
+    final fieldName = field.name;
+    if (fieldName == null) return '';
+    
+    for (final annotation in field.metadata.annotations) {
       final element = annotation.element;
       if (element != null && element.displayName == 'RjKey') {
         final constant = annotation.computeConstantValue();
         if (constant != null) {
           final snakeCase = constant.getField('snakeCase')?.toBoolValue() ?? false;
           if (snakeCase) {
-            return _toSnakeCase(field.name);
+            return _toSnakeCase(fieldName);
           }
           final jsonKey = constant.getField('jsonKey')?.toStringValue();
           if (jsonKey != null && jsonKey.isNotEmpty) {
@@ -63,7 +75,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
         }
       }
     }
-    return field.name;
+    return fieldName;
   }
 
   String _toSnakeCase(String camelCase) {
@@ -194,10 +206,14 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
   /// This avoids any cross-part `_$NestedSchema` reference.
   String _inlineObjectSchema(ClassElement classElement, String jsonKey) {
     final fields = classElement.fields
-        .where((f) => !f.isStatic && !f.isSynthetic && !f.name.startsWith('_'))
+        .where((f) {
+          final name = f.name;
+          return !f.isStatic && !f.isSynthetic && name != null && !name.startsWith('_');
+        })
         .toList();
 
     final entries = fields
+        .where((f) => f.name != null)
         .map((f) => "'${f.name}': ${_schemaExpression(f.type, '')}")
         .join(',\n    ');
 
@@ -295,14 +311,17 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
       ].any((n) => _isCore(type, n));
 
   String _typeName(DartType type) {
-    if (type is InterfaceType) return type.element.name;
+    if (type is InterfaceType) return type.element.name ?? '';
     return type.toString().replaceAll('?', '');
   }
 
   bool _hasRjAnnotation(DartType type) {
     if (type is! InterfaceType) return false;
-    return type.element.metadata.any(
-      (m) => m.element?.displayName == 'RjSafeParsable',
-    );
+    for (final annotation in type.element.metadata.annotations) {
+      if (annotation.element?.displayName == 'RjSafeParsable') {
+        return true;
+      }
+    }
+    return false;
   }
 }
