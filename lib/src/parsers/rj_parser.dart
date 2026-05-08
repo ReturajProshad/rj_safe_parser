@@ -34,10 +34,19 @@ class RjSafeMapParser {
     final data = <String, dynamic>{};
     final warnings = <String>[];
 
+    // ── Build reverse lookup: JSON key → Dart field name ─────────────────────
+    final jsonKeyToField = <String, String>{};
+    for (final entry in schema.entries) {
+      final dartField = entry.key;
+      final fieldSchema = entry.value;
+      final jsonKey = _extractJsonKey(fieldSchema, dartField);
+      jsonKeyToField[jsonKey] = dartField;
+    }
+
     // ── Strict mode: reject unknown keys ──────────────────────────────────────
     if (strict) {
       for (final key in source.keys) {
-        if (!schema.containsKey(key)) {
+        if (!jsonKeyToField.containsKey(key)) {
           throw RjParseException(
             'Unknown key "$key" (strict mode is enabled).',
             fieldPath: _joinPath(parentPath, key),
@@ -46,7 +55,7 @@ class RjSafeMapParser {
       }
     } else {
       for (final key in source.keys) {
-        if (!schema.containsKey(key)) {
+        if (!jsonKeyToField.containsKey(key)) {
           warnings.add(
             'Unknown key "${_joinPath(parentPath, key)}" was ignored.',
           );
@@ -56,15 +65,31 @@ class RjSafeMapParser {
 
     // ── Walk every field declared in the schema ────────────────────────────────
     for (final entry in schema.entries) {
-      final fieldName = entry.key;
+      final dartField = entry.key;
       final fieldSchema = entry.value;
-      final fieldPath = _joinPath(parentPath, fieldName);
-      final rawValue = source[fieldName]; // null if key absent
-      data[fieldName] =
+      final fieldPath = _joinPath(parentPath, dartField);
+      final jsonKey = _extractJsonKey(fieldSchema, dartField);
+      final rawValue = source[jsonKey]; // null if key absent
+      data[dartField] =
           _coerceField(rawValue, fieldSchema, fieldPath, warnings);
     }
 
     return RjParseResult(data: data, warnings: warnings);
+  }
+
+  /// Extracts the JSON key from a schema object.
+  /// Falls back to the Dart field name if no custom key is set.
+  String _extractJsonKey(RjFieldSchema schema, String dartField) {
+    if (schema is RjTypeSchema) {
+      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
+    }
+    if (schema is RjListSchema) {
+      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
+    }
+    if (schema is RjObjectSchema) {
+      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
+    }
+    return dartField;
   }
 
   // ── Recursive coercion ─────────────────────────────────────────────────────
@@ -88,7 +113,8 @@ class RjSafeMapParser {
 
   dynamic _coerceType(dynamic raw, RjTypeSchema schema, String path) {
     // Extract 'int' from 'RjTypeSchema<int>' or 'int?' from 'RjTypeSchema<int?>'
-    final typeParam = _extractGenericParam(schema.toString());
+    // The toString() now includes jsonKey, e.g., 'RjTypeSchema<int>(jsonKey: id)'
+    final typeParam = _extractTypeParamFromSchema(schema);
     // Nullability comes from the declared type (T?), NOT from whether the
     // raw value happens to be null. A null value for a required (non-?) field
     // must throw, not silently return null.
@@ -102,6 +128,17 @@ class RjSafeMapParser {
       nullable: nullable,
       dateFormat: dateFormat,
     );
+  }
+
+  /// Extracts the type parameter from schema toString() output.
+  /// Handles both old format 'RjTypeSchema<int>' and new format
+  /// 'RjTypeSchema<int>(jsonKey: ...)'.
+  static String _extractTypeParamFromSchema(RjTypeSchema schema) {
+    final str = schema.toString();
+    final start = str.indexOf('<');
+    final end = str.indexOf('>');
+    if (start == -1 || end == -1) return str;
+    return str.substring(start + 1, end);
   }
 
   List<dynamic> _coerceList(
