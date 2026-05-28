@@ -6,18 +6,20 @@
 // NOTE: These tests exercise the runtime engine directly —
 // no build_runner or code generation required.
 
-import 'package:flutter_test/flutter_test.dart';
+import 'package:test/test.dart';
 import 'package:rj_safe_parser/rj_safe_parser.dart';
 
 void main() {
   // ── Shared schema for most tests ──────────────────────────────────────────
   final schema = <String, RjFieldSchema>{
-    'id': const RjTypeSchema<int>(jsonKey: 'id'),
-    'name': const RjTypeSchema<String>(jsonKey: 'name'),
-    'score': const RjTypeSchema<double>(jsonKey: 'score'),
-    'isActive': const RjTypeSchema<bool>(jsonKey: 'isActive'),
-    'createdAt': const RjTypeSchema<DateTime>(jsonKey: 'createdAt'),
-    'profileUrl': const RjTypeSchema<Uri>(jsonKey: 'profileUrl'),
+    'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id'),
+    'name': const RjTypeSchema<String>(typeName: 'String', jsonKey: 'name'),
+    'score': const RjTypeSchema<double>(typeName: 'double', jsonKey: 'score'),
+    'isActive': const RjTypeSchema<bool>(typeName: 'bool', jsonKey: 'isActive'),
+    'createdAt': const RjTypeSchema<DateTime>(
+        typeName: 'DateTime', jsonKey: 'createdAt'),
+    'profileUrl':
+        const RjTypeSchema<Uri>(typeName: 'Uri', jsonKey: 'profileUrl'),
   };
 
   Map<String, dynamic> base({
@@ -122,7 +124,11 @@ void main() {
   // ── Nullable fields ────────────────────────────────────────────────────────
   group('RjSafeMapParser — nullable fields', () {
     final nullableSchema = <String, RjFieldSchema>{
-      'name': const RjTypeSchema<String?>(jsonKey: 'name'),
+      'name': const RjTypeSchema<String?>(
+        typeName: 'String',
+        isNullable: true,
+        jsonKey: 'name',
+      ),
     };
     final parser = const RjSafeMapParser();
 
@@ -143,21 +149,50 @@ void main() {
     final parser = const RjSafeMapParser();
 
     test('List<String> passes through', () {
-      final s = {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')};
+      final s = {
+        'tags': const RjListSchema(
+          RjTypeSchema<String>(typeName: 'String', jsonKey: ''),
+          jsonKey: 'tags',
+        ),
+      };
       final r = parser.parse({
         'tags': ['a', 'b', 'c']
       }, s);
       expect(r.data['tags'], equals(['a', 'b', 'c']));
     });
 
-    test('missing list → empty list (no exception)', () {
-      final s = {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')};
+    test('required list with missing key throws', () {
+      final s = {
+        'tags': const RjListSchema(
+          RjTypeSchema<String>(typeName: 'String', jsonKey: ''),
+          jsonKey: 'tags',
+        ),
+      };
+      expect(
+        () => parser.parse({}, s),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+
+    test('nullable list with missing key returns empty', () {
+      final s = {
+        'tags': const RjListSchema(
+          RjTypeSchema<String>(typeName: 'String', jsonKey: ''),
+          isNullable: true,
+          jsonKey: 'tags',
+        ),
+      };
       final r = parser.parse({}, s);
       expect(r.data['tags'], isEmpty);
     });
 
     test('List<int> coerced from strings', () {
-      final s = {'ids': const RjListSchema(const RjTypeSchema<int>(jsonKey: 'ids'), jsonKey: 'ids')};
+      final s = {
+        'ids': const RjListSchema(
+          RjTypeSchema<int>(typeName: 'int', jsonKey: ''),
+          jsonKey: 'ids',
+        ),
+      };
       final r = parser.parse({
         'ids': ['1', '2', '3']
       }, s);
@@ -171,11 +206,11 @@ void main() {
 
     test('nested object parsed correctly', () {
       final addressSchema = <String, RjFieldSchema>{
-        'city': const RjTypeSchema<String>(jsonKey: 'city'),
-        'zip': const RjTypeSchema<int>(jsonKey: 'zip'),
+        'city': const RjTypeSchema<String>(typeName: 'String', jsonKey: 'city'),
+        'zip': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'zip'),
       };
       final userSchema = <String, RjFieldSchema>{
-        'id': const RjTypeSchema<int>(jsonKey: 'id'),
+        'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id'),
         'address': RjObjectSchema(addressSchema, jsonKey: 'address'),
       };
       final r = parser.parse({
@@ -190,11 +225,11 @@ void main() {
 
     test('nested zip coerced from string to int', () {
       final addressSchema = <String, RjFieldSchema>{
-        'city': const RjTypeSchema<String>(jsonKey: 'city'),
-        'zip': const RjTypeSchema<int>(jsonKey: 'zip'),
+        'city': const RjTypeSchema<String>(typeName: 'String', jsonKey: 'city'),
+        'zip': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'zip'),
       };
       final userSchema = <String, RjFieldSchema>{
-        'id': const RjTypeSchema<int>(jsonKey: 'id'),
+        'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id'),
         'address': RjObjectSchema(addressSchema, jsonKey: 'address'),
       };
       final r = parser.parse({
@@ -215,7 +250,7 @@ void main() {
       expect(
         () => strict.parse(
           {'id': 1, 'extra': 'oops'},
-          {'id': const RjTypeSchema<int>()},
+          {'id': const RjTypeSchema<int>(typeName: 'int')},
         ),
         throwsA(isA<RjParseException>()),
       );
@@ -224,7 +259,7 @@ void main() {
     test('unknown key is warned (not thrown) in lenient mode', () {
       final r = lenient.parse(
         {'id': 1, 'extra': 'oops'},
-        {'id': const RjTypeSchema<int>()},
+        {'id': const RjTypeSchema<int>(typeName: 'int')},
       );
       expect(r.data['id'], equals(1));
       expect(r.hasWarnings, isTrue);
@@ -238,15 +273,20 @@ void main() {
 
     test('null required int throws RjParseException', () {
       expect(
-        () => parser.parse({'id': null}, {'id': const RjTypeSchema<int>()}),
+        () => parser.parse(
+          {'id': null},
+          {'id': const RjTypeSchema<int>(typeName: 'int')},
+        ),
         throwsA(isA<RjParseException>()),
       );
     });
 
     test('uncoercible string throws RjParseException', () {
       expect(
-        () => parser
-            .parse({'id': 'not_a_number'}, {'id': const RjTypeSchema<int>(jsonKey: 'id')}),
+        () => parser.parse(
+          {'id': 'not_a_number'},
+          {'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id')},
+        ),
         throwsA(isA<RjParseException>()),
       );
     });
@@ -256,7 +296,13 @@ void main() {
         () => parser.parse(
           {'address': 'not_a_map'},
           {
-            'address': const RjObjectSchema({'city': const RjTypeSchema<String>(jsonKey: 'city')}, jsonKey: 'address')
+            'address': const RjObjectSchema(
+              {
+                'city':
+                    RjTypeSchema<String>(typeName: 'String', jsonKey: 'city')
+              },
+              jsonKey: 'address',
+            ),
           },
         ),
         throwsA(isA<RjParseException>()),
@@ -267,7 +313,27 @@ void main() {
       expect(
         () => parser.parse(
           {'tags': 'not_a_list'},
-          {'tags': const RjListSchema(const RjTypeSchema<String>(jsonKey: 'tags'), jsonKey: 'tags')},
+          {
+            'tags': const RjListSchema(
+              RjTypeSchema<String>(typeName: 'String', jsonKey: ''),
+              jsonKey: 'tags',
+            ),
+          },
+        ),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+
+    test('missing required list key throws', () {
+      expect(
+        () => parser.parse(
+          {},
+          {
+            'tags': const RjListSchema(
+              RjTypeSchema<String>(typeName: 'String', jsonKey: ''),
+              jsonKey: 'tags',
+            ),
+          },
         ),
         throwsA(isA<RjParseException>()),
       );
@@ -306,18 +372,24 @@ void main() {
         () => expect(rjCoerceStringNullable(null, 'x'), isNull));
 
     // Error cases
-    test(
-        'rjCoerceInt bad string throws',
-        () => expect(
-            () => rjCoerceInt('abc', 'x'), throwsA(isA<RjParseException>())));
-    test(
-        'rjCoerceBool bad string throws',
-        () => expect(() => rjCoerceBool('maybe', 'x'),
-            throwsA(isA<RjParseException>())));
-    test(
-        'rjCoerceDateTime bad string throws',
-        () => expect(() => rjCoerceDateTime('not-a-date', 'x'),
-            throwsA(isA<RjParseException>())));
+    test('rjCoerceInt bad string throws', () {
+      expect(
+        () => rjCoerceInt('abc', 'x'),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+    test('rjCoerceBool bad string throws', () {
+      expect(
+        () => rjCoerceBool('maybe', 'x'),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+    test('rjCoerceDateTime bad string throws', () {
+      expect(
+        () => rjCoerceDateTime('not-a-date', 'x'),
+        throwsA(isA<RjParseException>()),
+      );
+    });
   });
 
   // ── RjParseResult ──────────────────────────────────────────────────────────
@@ -353,46 +425,101 @@ void main() {
     final parser = const RjSafeMapParser();
 
     test('snake_case JSON key maps to camelCase field', () {
-      final schema = <String, RjFieldSchema>{
-        'downloadUrl': const RjTypeSchema<String>(jsonKey: 'download_url'),
+      final s = <String, RjFieldSchema>{
+        'downloadUrl': const RjTypeSchema<String>(
+          typeName: 'String',
+          jsonKey: 'download_url',
+        ),
       };
-      final r = parser.parse({
-        'download_url': 'https://example.com/image.jpg',
-      }, schema);
+      final r =
+          parser.parse({'download_url': 'https://example.com/image.jpg'}, s);
       expect(r.data['downloadUrl'], equals('https://example.com/image.jpg'));
     });
 
     test('multiple snake_case keys map correctly', () {
-      final schema = <String, RjFieldSchema>{
-        'firstName': const RjTypeSchema<String>(jsonKey: 'first_name'),
-        'lastName': const RjTypeSchema<String>(jsonKey: 'last_name'),
-        'profileUrl': const RjTypeSchema<String>(jsonKey: 'profile_url'),
+      final s = <String, RjFieldSchema>{
+        'firstName': const RjTypeSchema<String>(
+            typeName: 'String', jsonKey: 'first_name'),
+        'lastName': const RjTypeSchema<String>(
+            typeName: 'String', jsonKey: 'last_name'),
+        'profileUrl': const RjTypeSchema<String>(
+            typeName: 'String', jsonKey: 'profile_url'),
       };
       final r = parser.parse({
         'first_name': 'Alice',
         'last_name': 'Smith',
         'profile_url': 'https://example.com/alice',
-      }, schema);
+      }, s);
       expect(r.data['firstName'], equals('Alice'));
       expect(r.data['lastName'], equals('Smith'));
       expect(r.data['profileUrl'], equals('https://example.com/alice'));
     });
 
     test('missing JSON key throws for required field', () {
-      final schema = <String, RjFieldSchema>{
-        'downloadUrl': const RjTypeSchema<String>(jsonKey: 'download_url'),
+      final s = <String, RjFieldSchema>{
+        'downloadUrl': const RjTypeSchema<String>(
+          typeName: 'String',
+          jsonKey: 'download_url',
+        ),
       };
       expect(
-        () => parser.parse({}, schema),
+        () => parser.parse({}, s),
         throwsA(isA<RjParseException>()),
       );
     });
 
     test('nullable field with custom key accepts missing key', () {
-      final schema = <String, RjFieldSchema>{
-        'nickname': const RjTypeSchema<String?>(jsonKey: 'nick_name'),
+      final s = <String, RjFieldSchema>{
+        'nickname': const RjTypeSchema<String?>(
+          typeName: 'String',
+          isNullable: true,
+          jsonKey: 'nick_name',
+        ),
       };
-      final r = parser.parse({}, schema);
+      final r = parser.parse({}, s);
+      expect(r.data['nickname'], isNull);
+    });
+  });
+
+  // ── Key-present vs key-absent distinction ──────────────────────────────────
+  group('RjSafeMapParser — key presence semantics', () {
+    final parser = const RjSafeMapParser();
+
+    test('absent required field throws even when map has other keys', () {
+      expect(
+        () => parser.parse(
+          {'name': 'Alice'},
+          {
+            'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id'),
+            'name':
+                const RjTypeSchema<String>(typeName: 'String', jsonKey: 'name'),
+          },
+        ),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+
+    test('key present with null value throws for required field', () {
+      expect(
+        () => parser.parse(
+          {'id': null},
+          {'id': const RjTypeSchema<int>(typeName: 'int', jsonKey: 'id')},
+        ),
+        throwsA(isA<RjParseException>()),
+      );
+    });
+
+    test('key absent for nullable field returns null', () {
+      final r = parser.parse(
+        {},
+        {
+          'nickname': const RjTypeSchema<String?>(
+            typeName: 'String',
+            isNullable: true,
+            jsonKey: 'nickname',
+          ),
+        },
+      );
       expect(r.data['nickname'], isNull);
     });
   });

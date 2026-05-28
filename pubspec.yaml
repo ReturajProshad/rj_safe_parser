@@ -1,7 +1,7 @@
 name: rj_safe_parser
 description: >-
   RJ Safe Parser: Annotation-based Dart generator for JSON parsing, mapping, and validation with zero boilerplate.
-version: 0.2.0
+version: 0.3.0
 homepage: https://github.com/ReturajProshad/rj_safe_parser
 repository: https://github.com/ReturajProshad/rj_safe_parser
 issue_tracker: https://github.com/ReturajProshad/rj_safe_parser/issues
@@ -27,6 +27,4 @@ dependencies:
 dev_dependencies:
   build_runner: ^2.4.0
   test: ^1.24.0
-  flutter_lints: ^3.0.0
-  flutter_test:
-    sdk: flutter
+  lints: ^3.0.0

@@ -5,9 +5,7 @@
 [![pub points](https://img.shields.io/pub/points/rj_safe_parser)](https://pub.dev/packages/rj_safe_parser/score)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**One annotation on the class. Zero per-field boilerplate.**
-
-`rj_safe_parser` is a Flutter/Dart code-generation package inspired by Spring Boot's `@Entity`.
+**One annotation on the class. Zero per-field boilerplate.**`rj_safe_parser` is a Flutter/Dart code-generation package inspired by Spring Boot's `@Entity`.
 Place `@RjSafeParsable()` once on a class, run `build_runner`, and get a fully
 type-safe `fromMap()` / `toMap()` with **smart coercion** for free — no per-field
 annotations, no manual schema, no handwritten converters.
@@ -45,27 +43,29 @@ final user = RjUserModel.fromMap(json);
 
 - ✅ **One annotation** — no `@JsonKey`, `@HiveField`, or per-field decoration needed
 - ✅ **Smart coercion** — `'7'` → `int`, `1` → `bool`, Unix timestamp → `DateTime`
+- ✅ **`@RjKey`** — map JSON keys to Dart fields (e.g. snake_case JSON → camelCase Dart)
 - ✅ **Nested models** — auto-detected when also annotated with `@RjSafeParsable()`
 - ✅ **Lists** — `List<String>`, `List<MyModel>` — all handled automatically
 - ✅ **Nullable fields** — `String?` = optional field, absent key safely yields `null`
 - ✅ **Strict mode** — optionally reject unknown keys for hard API validation
 - ✅ **Dot-path errors** — exceptions include the full field path (e.g. `address.zip`)
 - ✅ **Round-trip safe** — `toMap()` serialises back to the original shape
-- ✅ **Flutter-safe** — pure Dart, no `dart:mirrors`, fully tree-shakeable
+- ✅ **Pure Dart** — no `dart:mirrors`, no Flutter dependency, fully tree-shakeable
 
 ---
 
 ## vs. json_serializable
 
-|                                    | `json_serializable`           | `rj_safe_parser`            |
-| ---------------------------------- | ----------------------------- | --------------------------- |
-| Annotations per model              | 1 class + N fields            | **1 class only**            |
-| Wrong types (e.g. `"7"` for `int`) | ❌ throws                     | ✅ coerced automatically    |
-| Unix timestamp → DateTime          | manual converter              | ✅ built-in                 |
-| `1` / `0` → `bool`                 | manual converter              | ✅ built-in                 |
-| Add/rename a field                 | update class + annotation     | **update class only**       |
-| Nested models                      | `@JsonSerializable()` on each | `@RjSafeParsable()` on each |
-| Strict unknown-key mode            | ❌                            | ✅ `strict: true`           |
+|                                    | `json_serializable`           | `rj_safe_parser`              |
+| ---------------------------------- | ----------------------------- | ----------------------------- |
+| Annotations per model              | 1 class + N fields            | **1 class only**              |
+| Wrong types (e.g. `"7"` for `int`) | ❌ throws                     | ✅ coerced automatically      |
+| Unix timestamp → DateTime          | manual converter              | ✅ built-in                   |
+| `1` / `0` → `bool`                 | manual converter              | ✅ built-in                   |
+| JSON key mapping                   | `@JsonKey(name: ...)`         | `@RjKey(...)` or `.snakeCase` |
+| Add/rename a field                 | update class + annotation     | **update class only**         |
+| Nested models                      | `@JsonSerializable()` on each | `@RjSafeParsable()` on each   |
+| Strict unknown-key mode            | ❌                            | ✅ `strict: true`             |
 
 ---
 
@@ -75,7 +75,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  rj_safe_parser: ^0.1.0
+  rj_safe_parser: ^0.3.0
 
 dev_dependencies:
   build_runner: ^2.4.0
@@ -186,16 +186,20 @@ final map = user.toMap();
 
 ## Supported type coercions
 
-| Dart type     | Accepted raw values                                                          |
-| ------------- | ---------------------------------------------------------------------------- |
-| `int`         | `int`, `double` (truncated), `bool` (0/1), numeric `String`                  |
-| `double`      | `double`, `int`, numeric `String`                                            |
-| `bool`        | `bool`, `int` (0/1), `String` (`true` / `false` / `yes` / `no` / `1` / `0`)  |
-| `String`      | any value — `.toString()` is called                                          |
-| `DateTime`    | `DateTime`, Unix `int`/`double` (seconds or milliseconds), ISO-8601 `String` |
-| `Uri`         | `Uri`, any `String`                                                          |
-| `List<T>`     | `List` — each element is coerced to `T`                                      |
-| `NestedModel` | `Map<String, dynamic>` — when annotated with `@RjSafeParsable()`             |
+| Dart type     | Accepted raw values                                                           |
+| ------------- | ----------------------------------------------------------------------------- |
+| `int`         | `int`, `double` (truncated), `bool` (0/1), numeric `String`                   |
+| `double`      | `double`, `int`, numeric `String`                                             |
+| `bool`        | `bool`, `int` (0/1), `String` (`true` / `false` / `yes` / `no` / `1` / `0`)   |
+| `String`      | any value — `.toString()` is called                                           |
+| `DateTime`    | `DateTime`, Unix `int`/`double` (seconds or milliseconds), ISO-8601 `String`  |
+| `Uri`         | `Uri`, any `String`                                                           |
+| `List<T>`     | `List` — each element is coerced to `T`; missing key throws unless `List<T>?` |
+| `NestedModel` | `Map<String, dynamic>` — when annotated with `@RjSafeParsable()`              |
+
+> **Note:** Required (non-nullable) `List` fields now throw `RjParseException` when
+> the key is missing. Previously they silently returned `[]`. Use `List<T>?` if you
+> want to accept a missing key gracefully.
 
 ---
 
@@ -213,6 +217,41 @@ in `RjParseResult.warnings`. Useful for APIs that add fields over time.
 
 **`strict: true`** — unknown keys throw `RjParseException`. Useful when you want
 to enforce an exact contract.
+
+---
+
+## `@RjKey` — JSON key mapping
+
+When the JSON key differs from the Dart field name, use `@RjKey` on the field:
+
+```dart
+@RjSafeParsable()
+class Photo {
+  final String id;
+  final String author;
+
+  @RjKey('download_url')
+  final String downloadUrl;
+
+  Photo({required this.id, required this.author, required this.downloadUrl});
+
+  factory Photo.fromMap(Map<String, dynamic> map) => _$PhotoFromMap(map);
+  Map<String, dynamic> toMap() => _$PhotoToMap(this);
+}
+```
+
+The generated code reads from `'download_url'` in JSON, stores it in `downloadUrl`,
+and serialises back to `'download_url'` in `toMap()`.
+
+### Automatic snake_case conversion
+
+Instead of specifying the key manually, use `RjKey.snakeCase()` for automatic
+conversion (`downloadUrl` → `download_url`):
+
+```dart
+@RjKey.snakeCase()
+final String downloadUrl;
+```
 
 ---
 

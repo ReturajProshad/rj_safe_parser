@@ -1,3 +1,42 @@
+## 0.3.0
+
+**Phase 1 — Foundation fixes**
+
+- **Fix: type extraction no longer uses `toString()` parsing.**
+  `RjTypeSchema` now carries explicit `typeName: String` and `isNullable: bool`
+  fields set by the code generator at build time. The runtime reads these
+  directly — no string parsing, no fragile generic reflection.
+
+- **Fix: required `List` fields now throw on missing key.**
+  Previously a missing list key silently returned `[]` regardless of
+  nullability. Now only nullable lists (`List<T>?`) accept a missing key;
+  required lists throw `RjParseException` just like any other required field.
+
+- **Fix: key-present vs key-absent distinction in the parser.**
+  The parser now uses `Map.containsKey()` to distinguish a missing key from
+  an explicitly null value, enabling correct error messages for both cases.
+
+- **Fix: removed Flutter dependency.**
+  `flutter_test` and `flutter_lints` removed from `dev_dependencies`.
+  Replaced with `package:test` (already present) and `package:lints`.
+  `rj_safe_parser` is a pure Dart package and never required Flutter.
+
+- **Fix: `analysis_options.yaml` now includes `package:lints/recommended.yaml`**
+  instead of `package:flutter_lints/flutter.yaml`.
+
+- **Updated: `RjListSchema` and `RjObjectSchema` carry `isNullable` field.**
+  The runtime uses this to distinguish nullable-absent (return null/empty)
+  from required-absent (throw).
+
+- **Updated: generator emits `isNullable` and `typeName` in all schema literals.**
+  Regenerate `.g.dart` files with `dart run build_runner build --delete-conflicting-outputs`
+  after upgrading.
+
+- **Updated: test suite migrated from `flutter_test` to `package:test`.**
+  All tests pass with `dart test` — no Flutter toolchain required.
+
+---
+
 ## 0.1.0
 
 - Initial release of `rj_safe_parser`

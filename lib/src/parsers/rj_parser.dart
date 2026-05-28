@@ -39,7 +39,7 @@ class RjSafeMapParser {
     for (final entry in schema.entries) {
       final dartField = entry.key;
       final fieldSchema = entry.value;
-      final jsonKey = _extractJsonKey(fieldSchema, dartField);
+      final jsonKey = _jsonKeyOf(fieldSchema, dartField);
       jsonKeyToField[jsonKey] = dartField;
     }
 
@@ -68,27 +68,34 @@ class RjSafeMapParser {
       final dartField = entry.key;
       final fieldSchema = entry.value;
       final fieldPath = _joinPath(parentPath, dartField);
-      final jsonKey = _extractJsonKey(fieldSchema, dartField);
-      final rawValue = source[jsonKey]; // null if key absent
-      data[dartField] =
-          _coerceField(rawValue, fieldSchema, fieldPath, warnings);
+      final jsonKey = _jsonKeyOf(fieldSchema, dartField);
+
+      // Distinguish "key present with null value" from "key absent" so that
+      // required fields correctly throw on absence regardless of null-safety.
+      final keyPresent = source.containsKey(jsonKey);
+      final rawValue = source[jsonKey];
+
+      data[dartField] = _coerceField(
+        rawValue,
+        fieldSchema,
+        fieldPath,
+        warnings,
+        keyPresent: keyPresent,
+      );
     }
 
     return RjParseResult(data: data, warnings: warnings);
   }
 
-  /// Extracts the JSON key from a schema object.
-  /// Falls back to the Dart field name if no custom key is set.
-  String _extractJsonKey(RjFieldSchema schema, String dartField) {
-    if (schema is RjTypeSchema) {
-      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
-    }
-    if (schema is RjListSchema) {
-      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
-    }
-    if (schema is RjObjectSchema) {
-      return schema.jsonKey.isEmpty ? dartField : schema.jsonKey;
-    }
+  /// Returns the JSON key to look up in the source map for a given schema entry.
+  /// Falls back to the Dart field name when no custom key was set.
+  String _jsonKeyOf(RjFieldSchema schema, String dartField) {
+    if (schema is RjTypeSchema && schema.jsonKey.isNotEmpty)
+      return schema.jsonKey;
+    if (schema is RjListSchema && schema.jsonKey.isNotEmpty)
+      return schema.jsonKey;
+    if (schema is RjObjectSchema && schema.jsonKey.isNotEmpty)
+      return schema.jsonKey;
     return dartField;
   }
 
@@ -98,10 +105,15 @@ class RjSafeMapParser {
     dynamic raw,
     RjFieldSchema schema,
     String path,
-    List<String> warnings,
-  ) {
-    if (schema is RjTypeSchema) return _coerceType(raw, schema, path);
-    if (schema is RjListSchema) return _coerceList(raw, schema, path, warnings);
+    List<String> warnings, {
+    bool keyPresent = true,
+  }) {
+    if (schema is RjTypeSchema) {
+      return _coerceType(raw, schema, path, keyPresent: keyPresent);
+    }
+    if (schema is RjListSchema) {
+      return _coerceList(raw, schema, path, warnings, keyPresent: keyPresent);
+    }
     if (schema is RjObjectSchema) {
       return _coerceObject(raw, schema, path, warnings);
     }
@@ -111,50 +123,66 @@ class RjSafeMapParser {
     );
   }
 
-  dynamic _coerceType(dynamic raw, RjTypeSchema schema, String path) {
-    // Extract 'int' from 'RjTypeSchema<int>' or 'int?' from 'RjTypeSchema<int?>'
-    // The toString() now includes jsonKey, e.g., 'RjTypeSchema<int>(jsonKey: id)'
-    final typeParam = _extractTypeParamFromSchema(schema);
-    // Nullability comes from the declared type (T?), NOT from whether the
-    // raw value happens to be null. A null value for a required (non-?) field
-    // must throw, not silently return null.
-    final nullable = typeParam.endsWith('?');
-    final typeName =
-        nullable ? typeParam.substring(0, typeParam.length - 1) : typeParam;
+  // ── Primitive coercion ─────────────────────────────────────────────────────
+  //
+  // Reads typeName and isNullable directly from the schema — no toString()
+  // parsing, no fragile string extraction.
+
+  dynamic _coerceType(
+    dynamic raw,
+    RjTypeSchema schema,
+    String path, {
+    bool keyPresent = true,
+  }) {
+    // A nullable field whose key is absent returns null without error.
+    if (schema.isNullable && !keyPresent) return null;
+
     return rjCoerceValue(
       raw,
-      typeName,
+      schema.typeName,
       path,
-      nullable: nullable,
+      nullable: schema.isNullable,
       dateFormat: dateFormat,
     );
   }
 
-  /// Extracts the type parameter from schema toString() output.
-  /// Handles both old format 'RjTypeSchema<int>' and new format
-  /// 'RjTypeSchema<int>(jsonKey: ...)'.
-  static String _extractTypeParamFromSchema(RjTypeSchema schema) {
-    final str = schema.toString();
-    final start = str.indexOf('<');
-    final end = str.indexOf('>');
-    if (start == -1 || end == -1) return str;
-    return str.substring(start + 1, end);
-  }
+  // ── List coercion ──────────────────────────────────────────────────────────
 
   List<dynamic> _coerceList(
     dynamic raw,
     RjListSchema schema,
     String path,
-    List<String> warnings,
-  ) {
-    if (raw == null) return const [];
+    List<String> warnings, {
+    bool keyPresent = true,
+  }) {
+    // Nullable list field: absent key or explicit null → null (not empty list).
+    if (schema.isNullable) {
+      if (!keyPresent || raw == null) return const [];
+    } else {
+      // Required (non-nullable) list: absent key is an error.
+      if (!keyPresent) {
+        throw RjParseException(
+          'Required List field is missing.',
+          fieldPath: path,
+        );
+      }
+      // Explicit null for a required list is also an error.
+      if (raw == null) {
+        throw RjParseException(
+          'Expected List, got null.',
+          fieldPath: path,
+        );
+      }
+    }
+
     if (raw is! List) {
       throw RjParseException(
         'Expected List, got ${raw.runtimeType}',
         fieldPath: path,
       );
     }
-    // Use index-based iteration so path includes [0], [1], etc.
+
+    // Index-based loop so path entries include [0], [1], etc.
     final result = <dynamic>[];
     for (var i = 0; i < raw.length; i++) {
       result.add(
@@ -164,15 +192,21 @@ class RjSafeMapParser {
     return result;
   }
 
+  // ── Object coercion ────────────────────────────────────────────────────────
+
   Map<String, dynamic> _coerceObject(
     dynamic raw,
     RjObjectSchema schema,
     String path,
     List<String> warnings,
   ) {
+    if (schema.isNullable && raw == null) {
+      // Nullable nested object — caller's cast expression handles the null.
+      return <String, dynamic>{};
+    }
     if (raw == null) {
       throw RjParseException(
-        'Expected Map (nested object), got null',
+        'Expected Map (nested object), got null.',
         fieldPath: path,
       );
     }
@@ -195,12 +229,4 @@ class RjSafeMapParser {
 
   static String _joinPath(String parent, String child) =>
       parent.isEmpty ? child : '$parent.$child';
-
-  /// Extracts `'int'` from `'RjTypeSchema<int>'`.
-  static String _extractGenericParam(String s) {
-    final start = s.indexOf('<');
-    final end = s.lastIndexOf('>');
-    if (start == -1 || end == -1) return s;
-    return s.substring(start + 1, end);
-  }
 }
