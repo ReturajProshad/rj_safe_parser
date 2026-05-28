@@ -24,21 +24,17 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
 
     final className = element.name;
     if (className == null) {
-      throw InvalidGenerationSourceError(
-        'Class name is null.',
-        element: element,
-      );
+      throw InvalidGenerationSourceError('Class name is null.',
+          element: element);
     }
+
     final strict = annotation.read('strict').boolValue;
     final dateFormatRaw = annotation.peek('dateFormat')?.stringValue;
     final dateFormatExpr = dateFormatRaw != null ? "'$dateFormatRaw'" : 'null';
 
     final fields = element.fields.where((f) {
       final name = f.name;
-      return !f.isStatic &&
-          !f.isSynthetic &&
-          name != null &&
-          !name.startsWith('_');
+      return !f.isStatic && !f.isSynthetic && name != null && name.isNotEmpty && !name.startsWith('_');
     }).toList();
 
     final fieldJsonKeys = <FieldElement, String>{};
@@ -47,7 +43,6 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     }
 
     final buf = StringBuffer();
-    // source_gen adds the "GENERATED CODE" header automatically.
 
     _writeFromMap(
         buf, className, fields, fieldJsonKeys, strict, dateFormatExpr);
@@ -57,28 +52,40 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     return buf.toString();
   }
 
+  // ── Annotation helpers ─────────────────────────────────────────────────────
+
   String _extractJsonKey(FieldElement field) {
     final fieldName = field.name;
     if (fieldName == null) return '';
 
     for (final annotation in field.metadata.annotations) {
-      final element = annotation.element;
-      if (element != null && element.displayName == 'RjKey') {
+      final el = annotation.element;
+      if (el != null && el.displayName == 'RjKey') {
         final constant = annotation.computeConstantValue();
         if (constant != null) {
           final snakeCase =
               constant.getField('snakeCase')?.toBoolValue() ?? false;
-          if (snakeCase) {
-            return _toSnakeCase(fieldName);
-          }
+          if (snakeCase) return _toSnakeCase(fieldName);
           final jsonKey = constant.getField('jsonKey')?.toStringValue();
-          if (jsonKey != null && jsonKey.isNotEmpty) {
-            return jsonKey;
-          }
+          if (jsonKey != null && jsonKey.isNotEmpty) return jsonKey;
         }
       }
     }
     return fieldName;
+  }
+
+  /// Returns true if the field has @RjEnum and byIndex: true.
+  bool _enumByIndex(FieldElement field) {
+    for (final annotation in field.metadata.annotations) {
+      final el = annotation.element;
+      if (el != null && el.displayName == 'RjEnum') {
+        final constant = annotation.computeConstantValue();
+        if (constant != null) {
+          return constant.getField('byIndex')?.toBoolValue() ?? false;
+        }
+      }
+    }
+    return false;
   }
 
   String _toSnakeCase(String camelCase) {
@@ -115,7 +122,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     for (final field in fields) {
       final jsonKey = fieldJsonKeys[field]!;
       buf.writeln(
-          '    ${field.name}: ${_castExpression(field.type, jsonKey)},');
+          '    ${field.name}: ${_castExpression(field, field.type, jsonKey)},');
     }
 
     buf
@@ -139,7 +146,8 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
 
     for (final field in fields) {
       final jsonKey = fieldJsonKeys[field]!;
-      final expr = _serializeExpression(field.type, 'instance.${field.name}');
+      final expr =
+          _serializeExpression(field, field.type, 'instance.${field.name}');
       buf.writeln("    '$jsonKey': $expr,");
     }
 
@@ -162,7 +170,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     for (final field in fields) {
       final jsonKey = fieldJsonKeys[field]!;
       buf.writeln(
-          "  '${field.name}': ${_schemaExpression(field.type, jsonKey)},");
+          "  '${field.name}': ${_schemaExpression(field, field.type, jsonKey)},");
     }
 
     buf
@@ -171,19 +179,13 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
   }
 
   // ── Schema expression ──────────────────────────────────────────────────────
-  //
-  // Every RjTypeSchema now carries explicit `typeName` and `isNullable` fields
-  // so the runtime never needs to parse toString() or use Dart generic
-  // reflection to determine how to coerce a value.
-  //
-  // Nested @RjSafeParsable classes use _inlineObjectSchema to avoid
-  // cross-part `_$NestedSchema` references.
 
-  String _schemaExpression(DartType type, String jsonKey) {
+  String _schemaExpression(FieldElement? field, DartType type, String jsonKey) {
     final nullable = _isNullable(type);
     final inner = _unwrap(type);
     final nullableStr = nullable ? 'true' : 'false';
 
+    // ── Primitives ────────────────────────────────────────────────────────────
     if (_isCore(inner, 'String')) {
       return "const RjTypeSchema<String>(typeName: 'String', isNullable: $nullableStr, jsonKey: '$jsonKey')";
     }
@@ -203,11 +205,36 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
       return "const RjTypeSchema<Uri>(typeName: 'Uri', isNullable: $nullableStr, jsonKey: '$jsonKey')";
     }
 
+    // ── Enum ──────────────────────────────────────────────────────────────────
+    if (inner is InterfaceType && inner.element is EnumElement) {
+      final enumName = inner.element.name;
+      final byIndex = field != null ? _enumByIndex(field) : false;
+      return "RjEnumSchema(enumValues: $enumName.values, byIndex: $byIndex, "
+          "isNullable: $nullableStr, jsonKey: '$jsonKey')";
+    }
+
+    // ── Map<String, V> ────────────────────────────────────────────────────────
+    if (inner is InterfaceType && inner.element.name == 'Map') {
+      // We only support Map<String, V> — enforce String key at codegen time.
+      final keyType = inner.typeArguments[0];
+      if (!_isCore(_unwrap(keyType), 'String')) {
+        throw InvalidGenerationSourceError(
+          'Only Map<String, V> is supported. '
+          'Got Map<$keyType, ...> on field "${field?.name ?? '?'}".',
+        );
+      }
+      final valueType = inner.typeArguments[1];
+      final valueSchema = _schemaExpression(null, valueType, '');
+      return "RjMapSchema($valueSchema, isNullable: $nullableStr, jsonKey: '$jsonKey')";
+    }
+
+    // ── List<T> ───────────────────────────────────────────────────────────────
     if (inner is InterfaceType && inner.element.name == 'List') {
-      final itemSchema = _schemaExpression(inner.typeArguments.first, '');
+      final itemSchema = _schemaExpression(null, inner.typeArguments.first, '');
       return "const RjListSchema($itemSchema, isNullable: $nullableStr, jsonKey: '$jsonKey')";
     }
 
+    // ── Nested @RjSafeParsable ────────────────────────────────────────────────
     if (inner is InterfaceType && _hasRjAnnotation(inner)) {
       return _inlineObjectSchema(
           inner.element as ClassElement, jsonKey, nullable);
@@ -215,31 +242,22 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
 
     throw InvalidGenerationSourceError(
       'Unsupported field type: $type. '
-      'Annotate the nested class with @RjSafeParsable() or '
-      'register a custom converter.',
+      'Annotate the nested class with @RjSafeParsable(), or use '
+      'Map<String, V> for dynamic maps.',
     );
   }
 
-  /// Recursively builds an `RjObjectSchema({...})` literal inline,
-  /// walking the nested class's fields via the analyzer element.
-  /// This avoids any cross-part `_$NestedSchema` reference.
+  /// Recursively builds an `RjObjectSchema({...})` literal inline.
   String _inlineObjectSchema(
-    ClassElement classElement,
-    String jsonKey,
-    bool nullable,
-  ) {
+      ClassElement classElement, String jsonKey, bool nullable) {
     final fields = classElement.fields.where((f) {
       final name = f.name;
-      return !f.isStatic &&
-          !f.isSynthetic &&
-          name != null &&
-          !name.startsWith('_');
+      return !f.isStatic && !f.isSynthetic && name != null && name.isNotEmpty && !name.startsWith('_');
     }).toList();
 
     final entries = fields
-        .where((f) => f.name != null)
         .map((f) =>
-            "'${f.name}': ${_schemaExpression(f.type, _extractJsonKey(f))}")
+            "'${f.name}': ${_schemaExpression(f, f.type, _extractJsonKey(f))}")
         .join(',\n    ');
 
     final nullableStr = nullable ? 'true' : 'false';
@@ -248,12 +266,28 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
 
   // ── Cast expression (fromMap body) ────────────────────────────────────────
 
-  String _castExpression(DartType type, String jsonKey) {
+  String _castExpression(FieldElement field, DartType type, String jsonKey) {
     final nullable = _isNullable(type);
     final inner = _unwrap(type);
     final q = nullable ? '?' : '';
 
-    // Primitives — already coerced by RjSafeMapParser, just cast
+    // Enum — cast to the concrete enum type
+    if (inner is InterfaceType && inner.element is EnumElement) {
+      final enumName = inner.element.name;
+      return "result.data['$jsonKey'] as $enumName$q";
+    }
+
+    // Map<String, V> — cast to Map then re-cast values if needed
+    if (inner is InterfaceType && inner.element.name == 'Map') {
+      final valueType = _unwrap(inner.typeArguments[1]);
+      final valueName = _typeName(valueType);
+      if (nullable) {
+        return "(result.data['$jsonKey'] as Map<String, dynamic>?)?.cast<String, $valueName>()";
+      }
+      return "(result.data['$jsonKey'] as Map<String, dynamic>).cast<String, $valueName>()";
+    }
+
+    // Primitives
     if (_isPrimitive(inner)) {
       return "result.data['$jsonKey'] as ${_typeName(inner)}$q";
     }
@@ -262,6 +296,13 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     if (inner is InterfaceType && inner.element.name == 'List') {
       final itemType = inner.typeArguments.first;
       final itemInner = _unwrap(itemType);
+
+      if (itemInner is InterfaceType && itemInner.element is EnumElement) {
+        final enumName = itemInner.element.name;
+        return "(result.data['$jsonKey'] as List$q)"
+            "$q.map((e) => e as $enumName).toList()"
+            "${nullable ? ' ?? []' : ''}";
+      }
 
       if (_hasRjAnnotation(itemInner)) {
         final itemClass = (itemInner as InterfaceType).element.name;
@@ -276,7 +317,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
           "${nullable ? ' ?? []' : ''}";
     }
 
-    // Nested @RjSafeParsable object — delegate to its own fromMap()
+    // Nested @RjSafeParsable object
     if (inner is InterfaceType && _hasRjAnnotation(inner)) {
       final cls = inner.element.name;
       if (nullable) {
@@ -292,7 +333,8 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
 
   // ── Serialize expression (toMap body) ─────────────────────────────────────
 
-  String _serializeExpression(DartType type, String accessor) {
+  String _serializeExpression(
+      FieldElement field, DartType type, String accessor) {
     final inner = _unwrap(type);
     final nullable = _isNullable(type);
     final q = nullable ? '?' : '';
@@ -300,6 +342,31 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
     if (_isCore(inner, 'DateTime')) return '$accessor$q.toIso8601String()';
     if (_isCore(inner, 'Uri')) return '$accessor$q.toString()';
 
+    // Enum — serialize to name (default) or index (byIndex: true)
+    if (inner is InterfaceType && inner.element is EnumElement) {
+      final byIndex = _enumByIndex(field);
+      if (byIndex) {
+        return '$accessor$q.index';
+      }
+      return '$accessor$q.name';
+    }
+
+    // Map<String, V> — serialize values
+    if (inner is InterfaceType && inner.element.name == 'Map') {
+      final valueInner = _unwrap(inner.typeArguments[1]);
+      if (_hasRjAnnotation(valueInner)) {
+        return '$accessor$q.map((k, v) => MapEntry(k, v.toMap()))';
+      }
+      if (_isCore(valueInner, 'DateTime')) {
+        return '$accessor$q.map((k, v) => MapEntry(k, v.toIso8601String()))';
+      }
+      if (_isCore(valueInner, 'Uri')) {
+        return '$accessor$q.map((k, v) => MapEntry(k, v.toString()))';
+      }
+      return accessor;
+    }
+
+    // List
     if (inner is InterfaceType && inner.element.name == 'List') {
       final itemInner = _unwrap(inner.typeArguments.first);
       if (_hasRjAnnotation(itemInner)) {
@@ -308,6 +375,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
       return accessor;
     }
 
+    // Nested object
     if (inner is InterfaceType && _hasRjAnnotation(inner)) {
       return '$accessor$q.toMap()';
     }
@@ -331,7 +399,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
         'double',
         'bool',
         'DateTime',
-        'Uri',
+        'Uri'
       ].any((n) => _isCore(type, n));
 
   String _typeName(DartType type) {
@@ -342,9 +410,7 @@ class RjSafeParserGenerator extends GeneratorForAnnotation<RjSafeParsable> {
   bool _hasRjAnnotation(DartType type) {
     if (type is! InterfaceType) return false;
     for (final annotation in type.element.metadata.annotations) {
-      if (annotation.element?.displayName == 'RjSafeParsable') {
-        return true;
-      }
+      if (annotation.element?.displayName == 'RjSafeParsable') return true;
     }
     return false;
   }

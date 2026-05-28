@@ -75,3 +75,48 @@ class RjKey {
   /// Field `downloadUrl` → JSON key `download_url`
   const RjKey.snakeCase() : this('', snakeCase: true);
 }
+
+/// Controls how an `enum` field is read from and written to JSON.
+///
+/// By default (`byIndex: false`) enums are matched **by name**:
+/// the JSON value must be the enum constant's name as a String.
+///
+/// Set `byIndex: true` to match by the enum constant's ordinal position
+/// (0-based integer) instead of its name.
+///
+/// Example — by name (default):
+/// ```dart
+/// enum Status { active, inactive, pending }
+///
+/// @RjSafeParsable()
+/// class Order {
+///   @RjEnum()                  // 'active' → Status.active
+///   final Status status;
+///   ...
+/// }
+/// ```
+///
+/// Example — by index:
+/// ```dart
+/// enum Priority { low, medium, high }
+///
+/// @RjSafeParsable()
+/// class Task {
+///   @RjEnum(byIndex: true)     // 0 → Priority.low, 1 → Priority.medium, …
+///   final Priority priority;
+///   ...
+/// }
+/// ```
+///
+/// `toMap()` serialises the enum back to either its `.name` (default) or its
+/// index in the `values` list (`byIndex: true`).
+///
+/// If the annotation is omitted from an enum field the generator defaults to
+/// by-name matching — `@RjEnum()` is optional when `byIndex: false`.
+class RjEnum {
+  /// `false` (default) — match enum by name string.
+  /// `true`            — match enum by integer index in `values` list.
+  final bool byIndex;
+
+  const RjEnum({this.byIndex = false});
+}

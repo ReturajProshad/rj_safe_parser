@@ -22,15 +22,8 @@ abstract class RjFieldSchema {
 ///               to extract it from `toString()` or generic reflection.
 /// [isNullable] — true when the Dart field is declared as `T?`.
 class RjTypeSchema<T> extends RjFieldSchema {
-  /// The JSON key name (may differ from Dart field name when using @RjKey).
   final String jsonKey;
-
-  /// Dart type name used by the runtime coercer — e.g. `'int'`, `'DateTime'`.
-  /// Always set explicitly by the generator; never derived from toString().
   final String typeName;
-
-  /// Whether the field is nullable (`T?`). Absent keys return null instead of
-  /// throwing when this is true.
   final bool isNullable;
 
   const RjTypeSchema({
@@ -45,6 +38,58 @@ class RjTypeSchema<T> extends RjFieldSchema {
       'jsonKey: ${jsonKey.isEmpty ? '<field>' : jsonKey})';
 }
 
+// ─── Enum ─────────────────────────────────────────────────────────────────────
+
+/// Schema for a Dart `enum` field (annotated with `@RjEnum()` or inferred).
+///
+/// [enumValues] — the full `EnumType.values` list, passed in by the generated
+///               schema constant so the runtime can perform name/index lookup
+///               without `dart:mirrors`.
+/// [byIndex]    — when true, the JSON value is an int index into [enumValues];
+///               when false (default), the JSON value is the enum `.name` string.
+/// [jsonKey]    — the key name in the JSON map.
+/// [isNullable] — true when the field is declared as `EnumType?`.
+class RjEnumSchema extends RjFieldSchema {
+  final List<Enum> enumValues;
+  final bool byIndex;
+  final String jsonKey;
+  final bool isNullable;
+
+  const RjEnumSchema({
+    required this.enumValues,
+    this.byIndex = false,
+    this.jsonKey = '',
+    this.isNullable = false,
+  });
+
+  @override
+  String toString() =>
+      'RjEnumSchema(${enumValues.runtimeType}, byIndex: $byIndex, '
+      'isNullable: $isNullable, jsonKey: ${jsonKey.isEmpty ? '<field>' : jsonKey})';
+}
+
+// ─── Map ──────────────────────────────────────────────────────────────────────
+
+/// Schema for `Map<String, V>` fields.
+///
+/// Keys are always treated as Strings (JSON only supports string keys).
+/// [valueSchema] describes how each map value is coerced.
+///
+/// [jsonKey]    — the key name in the JSON map.
+/// [isNullable] — true when the field is declared as `Map<String, V>?`.
+class RjMapSchema extends RjFieldSchema {
+  final RjFieldSchema valueSchema;
+  final String jsonKey;
+  final bool isNullable;
+
+  const RjMapSchema(this.valueSchema,
+      {this.jsonKey = '', this.isNullable = false});
+
+  @override
+  String toString() => 'RjMapSchema($valueSchema, isNullable: $isNullable, '
+      'jsonKey: ${jsonKey.isEmpty ? '<field>' : jsonKey})';
+}
+
 // ─── List ─────────────────────────────────────────────────────────────────────
 
 /// Schema for `List<E>` fields. [itemSchema] describes each element.
@@ -53,12 +98,8 @@ class RjTypeSchema<T> extends RjFieldSchema {
 /// [isNullable] — true when the field is declared as `List<E>?`.
 ///               A non-nullable list with a missing key throws [RjParseException].
 class RjListSchema extends RjFieldSchema {
-  /// The JSON key name (may differ from Dart field name when using @RjKey).
   final String jsonKey;
-
-  /// Whether the list field itself is nullable (`List<E>?`).
   final bool isNullable;
-
   final RjFieldSchema itemSchema;
 
   const RjListSchema(this.itemSchema,
@@ -72,17 +113,12 @@ class RjListSchema extends RjFieldSchema {
 // ─── Nested object ────────────────────────────────────────────────────────────
 
 /// Schema for a nested object (another `@RjSafeParsable` class).
-/// [fieldSchemas] is the generated `_$SomeClassSchema` map of that class.
 ///
 /// [jsonKey]    — the key name in the JSON (may differ from Dart field name).
 /// [isNullable] — true when the field is declared as `NestedModel?`.
 class RjObjectSchema extends RjFieldSchema {
-  /// The JSON key name (may differ from Dart field name when using @RjKey).
   final String jsonKey;
-
-  /// Whether this nested object field is nullable.
   final bool isNullable;
-
   final Map<String, RjFieldSchema> fieldSchemas;
 
   const RjObjectSchema(this.fieldSchemas,

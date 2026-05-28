@@ -3,10 +3,6 @@
 /// Each `rjCoerce*` function accepts the raw value from the source map
 /// (which may be a "wrong but close" type, e.g. `'7'` instead of `7`)
 /// and returns the correct Dart type — or throws [RjParseException].
-///
-/// FIX vs original: errors are never silently swallowed. If coercion fails
-/// and the field is required, an [RjParseException] is thrown so the caller
-/// knows exactly which field failed and why.
 library rj_safe_parser.converters;
 
 import 'rj_parse_result.dart';
@@ -112,11 +108,9 @@ DateTime rjCoerceDateTime(dynamic v, String path, {String? format}) {
   }
 
   if (v is String) {
-    // ISO-8601
     final iso = DateTime.tryParse(v);
     if (iso != null) return iso;
 
-    // Numeric string (Unix ts)
     final asInt = int.tryParse(v);
     if (asInt != null) return rjCoerceDateTime(asInt, path, format: format);
 
@@ -157,14 +151,108 @@ Uri rjCoerceUri(dynamic v, String path) {
 Uri? rjCoerceUriNullable(dynamic v, String path) =>
     v == null ? null : rjCoerceUri(v, path);
 
+// ─── Enum ─────────────────────────────────────────────────────────────────────
+
+/// Coerces [v] to one of the enum constants in [values].
+///
+/// When [byIndex] is false (default), [v] must be a String matching an enum
+/// constant's `.name`. When [byIndex] is true, [v] must be an int (or
+/// coercible numeric string) that is a valid index in [values].
+///
+/// Throws [RjParseException] if the value cannot be matched.
+T rjCoerceEnum<T extends Enum>(
+  dynamic v,
+  List<T> values,
+  String path, {
+  bool byIndex = false,
+}) {
+  if (v == null) {
+    throw RjParseException('Expected enum ${T.toString()}, got null',
+        fieldPath: path);
+  }
+
+  if (byIndex) {
+    // Accept int or numeric string
+    final idx = v is int ? v : int.tryParse(v.toString());
+    if (idx == null) {
+      throw RjParseException(
+        'Cannot coerce ${v.runtimeType} "$v" → ${T.toString()} index: '
+        'expected an integer.',
+        fieldPath: path,
+      );
+    }
+    if (idx < 0 || idx >= values.length) {
+      throw RjParseException(
+        'Enum index $idx is out of range for ${T.toString()} '
+        '(valid: 0–${values.length - 1}).',
+        fieldPath: path,
+      );
+    }
+    return values[idx];
+  }
+
+  // By name — accept String or stringify anything else
+  final name = v.toString();
+  for (final constant in values) {
+    if (constant.name == name) return constant;
+  }
+  final validNames = values.map((e) => e.name).join(', ');
+  throw RjParseException(
+    'Cannot match "$name" to any constant in ${T.toString()}. '
+    'Valid names: $validNames.',
+    fieldPath: path,
+  );
+}
+
+T? rjCoerceEnumNullable<T extends Enum>(
+  dynamic v,
+  List<T> values,
+  String path, {
+  bool byIndex = false,
+}) =>
+    v == null ? null : rjCoerceEnum(v, values, path, byIndex: byIndex);
+
+// ─── Map ──────────────────────────────────────────────────────────────────────
+
+/// Coerces a raw JSON map to `Map<String, V>` by applying [coerceValue] to
+/// each entry's value.
+///
+/// Keys are always treated as Strings (JSON only supports string keys).
+/// Throws [RjParseException] if [raw] is not a [Map].
+Map<String, dynamic> rjCoerceMap(
+  dynamic raw,
+  String path, {
+  required dynamic Function(dynamic value, String entryPath) coerceValue,
+}) {
+  if (raw == null) {
+    throw RjParseException('Expected Map, got null', fieldPath: path);
+  }
+  if (raw is! Map) {
+    throw RjParseException(
+      'Expected Map, got ${raw.runtimeType}',
+      fieldPath: path,
+    );
+  }
+  final result = <String, dynamic>{};
+  for (final entry in raw.entries) {
+    final key = entry.key.toString();
+    final entryPath = '$path.$key';
+    result[key] = coerceValue(entry.value, entryPath);
+  }
+  return result;
+}
+
+Map<String, dynamic>? rjCoerceMapNullable(
+  dynamic raw,
+  String path, {
+  required dynamic Function(dynamic value, String entryPath) coerceValue,
+}) =>
+    raw == null ? null : rjCoerceMap(raw, path, coerceValue: coerceValue);
+
 // ─── Dispatcher (used by RjSafeMapParser internally) ─────────────────────────
 
 /// Coerces [value] to the type named by [typeName].
 /// [nullable] = true means null is a valid result (field is typed `T?`).
-///
-/// FIX vs original rj_converters.dart:
-///   • Does NOT silently return null/value on failure
-///   • Throws [RjParseException] with full path context
 dynamic rjCoerceValue(
   dynamic value,
   String typeName,

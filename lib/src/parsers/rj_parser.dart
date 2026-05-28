@@ -70,8 +70,7 @@ class RjSafeMapParser {
       final fieldPath = _joinPath(parentPath, dartField);
       final jsonKey = _jsonKeyOf(fieldSchema, dartField);
 
-      // Distinguish "key present with null value" from "key absent" so that
-      // required fields correctly throw on absence regardless of null-safety.
+      // Distinguish "key present with null value" from "key absent".
       final keyPresent = source.containsKey(jsonKey);
       final rawValue = source[jsonKey];
 
@@ -87,19 +86,15 @@ class RjSafeMapParser {
     return RjParseResult(data: data, warnings: warnings);
   }
 
-  /// Returns the JSON key to look up in the source map for a given schema entry.
-  /// Falls back to the Dart field name when no custom key was set.
+  /// Returns the JSON key for a schema entry, falling back to the Dart field name.
   String _jsonKeyOf(RjFieldSchema schema, String dartField) {
-    if (schema is RjTypeSchema && schema.jsonKey.isNotEmpty) {
-      return schema.jsonKey;
-    }
-    if (schema is RjListSchema && schema.jsonKey.isNotEmpty) {
-      return schema.jsonKey;
-    }
-    if (schema is RjObjectSchema && schema.jsonKey.isNotEmpty) {
-      return schema.jsonKey;
-    }
-    return dartField;
+    String key = '';
+    if (schema is RjTypeSchema) key = schema.jsonKey;
+    if (schema is RjListSchema) key = schema.jsonKey;
+    if (schema is RjObjectSchema) key = schema.jsonKey;
+    if (schema is RjEnumSchema) key = schema.jsonKey;
+    if (schema is RjMapSchema) key = schema.jsonKey;
+    return key.isNotEmpty ? key : dartField;
   }
 
   // ── Recursive coercion ─────────────────────────────────────────────────────
@@ -111,15 +106,17 @@ class RjSafeMapParser {
     List<String> warnings, {
     bool keyPresent = true,
   }) {
-    if (schema is RjTypeSchema) {
+    if (schema is RjTypeSchema)
       return _coerceType(raw, schema, path, keyPresent: keyPresent);
-    }
-    if (schema is RjListSchema) {
+    if (schema is RjListSchema)
       return _coerceList(raw, schema, path, warnings, keyPresent: keyPresent);
-    }
-    if (schema is RjObjectSchema) {
-      return _coerceObject(raw, schema, path, warnings);
-    }
+    if (schema is RjObjectSchema)
+      return _coerceObject(raw, schema, path, warnings, keyPresent: keyPresent);
+    if (schema is RjEnumSchema)
+      return _coerceEnum(raw, schema, path, keyPresent: keyPresent);
+    if (schema is RjMapSchema)
+      return _coerceMap(raw, schema, path, warnings, keyPresent: keyPresent);
+
     throw RjParseException(
       'Unsupported schema type: ${schema.runtimeType}',
       fieldPath: path,
@@ -127,9 +124,6 @@ class RjSafeMapParser {
   }
 
   // ── Primitive coercion ─────────────────────────────────────────────────────
-  //
-  // Reads typeName and isNullable directly from the schema — no toString()
-  // parsing, no fragile string extraction.
 
   dynamic _coerceType(
     dynamic raw,
@@ -137,15 +131,39 @@ class RjSafeMapParser {
     String path, {
     bool keyPresent = true,
   }) {
-    // A nullable field whose key is absent returns null without error.
     if (schema.isNullable && !keyPresent) return null;
-
     return rjCoerceValue(
       raw,
       schema.typeName,
       path,
       nullable: schema.isNullable,
       dateFormat: dateFormat,
+    );
+  }
+
+  // ── Enum coercion ──────────────────────────────────────────────────────────
+
+  dynamic _coerceEnum(
+    dynamic raw,
+    RjEnumSchema schema,
+    String path, {
+    bool keyPresent = true,
+  }) {
+    if (schema.isNullable && !keyPresent) return null;
+    if (schema.isNullable && raw == null) return null;
+
+    if (!keyPresent) {
+      throw RjParseException(
+        'Required enum field is missing.',
+        fieldPath: path,
+      );
+    }
+
+    return rjCoerceEnum(
+      raw,
+      schema.enumValues,
+      path,
+      byIndex: schema.byIndex,
     );
   }
 
@@ -158,23 +176,15 @@ class RjSafeMapParser {
     List<String> warnings, {
     bool keyPresent = true,
   }) {
-    // Nullable list field: absent key or explicit null → null (not empty list).
     if (schema.isNullable) {
       if (!keyPresent || raw == null) return const [];
     } else {
-      // Required (non-nullable) list: absent key is an error.
       if (!keyPresent) {
-        throw RjParseException(
-          'Required List field is missing.',
-          fieldPath: path,
-        );
+        throw RjParseException('Required List field is missing.',
+            fieldPath: path);
       }
-      // Explicit null for a required list is also an error.
       if (raw == null) {
-        throw RjParseException(
-          'Expected List, got null.',
-          fieldPath: path,
-        );
+        throw RjParseException('Expected List, got null.', fieldPath: path);
       }
     }
 
@@ -185,11 +195,51 @@ class RjSafeMapParser {
       );
     }
 
-    // Index-based loop so path entries include [0], [1], etc.
     final result = <dynamic>[];
     for (var i = 0; i < raw.length; i++) {
-      result.add(
-        _coerceField(raw[i], schema.itemSchema, '$path[$i]', warnings),
+      result
+          .add(_coerceField(raw[i], schema.itemSchema, '$path[$i]', warnings));
+    }
+    return result;
+  }
+
+  // ── Map coercion ───────────────────────────────────────────────────────────
+
+  Map<String, dynamic>? _coerceMap(
+    dynamic raw,
+    RjMapSchema schema,
+    String path,
+    List<String> warnings, {
+    bool keyPresent = true,
+  }) {
+    if (schema.isNullable) {
+      if (!keyPresent || raw == null) return null;
+    } else {
+      if (!keyPresent) {
+        throw RjParseException('Required Map field is missing.',
+            fieldPath: path);
+      }
+      if (raw == null) {
+        throw RjParseException('Expected Map, got null.', fieldPath: path);
+      }
+    }
+
+    if (raw is! Map) {
+      throw RjParseException(
+        'Expected Map, got ${raw.runtimeType}',
+        fieldPath: path,
+      );
+    }
+
+    final result = <String, dynamic>{};
+    for (final entry in raw.entries) {
+      final key = entry.key.toString();
+      final entryPath = '$path.$key';
+      result[key] = _coerceField(
+        entry.value,
+        schema.valueSchema,
+        entryPath,
+        warnings,
       );
     }
     return result;
@@ -201,10 +251,10 @@ class RjSafeMapParser {
     dynamic raw,
     RjObjectSchema schema,
     String path,
-    List<String> warnings,
-  ) {
-    if (schema.isNullable && raw == null) {
-      // Nullable nested object — caller's cast expression handles the null.
+    List<String> warnings, {
+    bool keyPresent = true,
+  }) {
+    if (schema.isNullable && (!keyPresent || raw == null)) {
       return <String, dynamic>{};
     }
     if (raw == null) {

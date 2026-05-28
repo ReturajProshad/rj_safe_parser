@@ -5,7 +5,9 @@
 [![pub points](https://img.shields.io/pub/points/rj_safe_parser)](https://pub.dev/packages/rj_safe_parser/score)
 [![license](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-**One annotation on the class. Zero per-field boilerplate.**`rj_safe_parser` is a Flutter/Dart code-generation package inspired by Spring Boot's `@Entity`.
+**One annotation on the class. Zero per-field boilerplate.**
+
+`rj_safe_parser` is a Dart code-generation package inspired by Spring Boot's `@Entity`.
 Place `@RjSafeParsable()` once on a class, run `build_runner`, and get a fully
 type-safe `fromMap()` / `toMap()` with **smart coercion** for free — no per-field
 annotations, no manual schema, no handwritten converters.
@@ -46,6 +48,8 @@ final user = RjUserModel.fromMap(json);
 - ✅ **`@RjKey`** — map JSON keys to Dart fields (e.g. snake_case JSON → camelCase Dart)
 - ✅ **Nested models** — auto-detected when also annotated with `@RjSafeParsable()`
 - ✅ **Lists** — `List<String>`, `List<MyModel>` — all handled automatically
+- ✅ **Map<String, V>** — `Map<String, int>`, `Map<String, bool>` — values coerced automatically
+- ✅ **Enums** — by-name or by-index (`@RjEnum(byIndex: true)`)
 - ✅ **Nullable fields** — `String?` = optional field, absent key safely yields `null`
 - ✅ **Strict mode** — optionally reject unknown keys for hard API validation
 - ✅ **Dot-path errors** — exceptions include the full field path (e.g. `address.zip`)
@@ -59,9 +63,11 @@ final user = RjUserModel.fromMap(json);
 |                                    | `json_serializable`           | `rj_safe_parser`              |
 | ---------------------------------- | ----------------------------- | ----------------------------- |
 | Annotations per model              | 1 class + N fields            | **1 class only**              |
-| Wrong types (e.g. `"7"` for `int`) | ❌ throws                     | ✅ coerced automatically      |
-| Unix timestamp → DateTime          | manual converter              | ✅ built-in                   |
-| `1` / `0` → `bool`                 | manual converter              | ✅ built-in                   |
+| Wrong types (e.g. `"7"` for `int`) | ❌ throws                     | ✅ coerced automatically    |
+| Unix timestamp → DateTime          | manual converter              | ✅ built-in                 |
+| `1` / `0` → `bool`                 | manual converter              | ✅ built-in                 |
+| Enums                              | `@JsonKey(unknownEnumValue:…)` | `@RjEnum()` or `@RjEnum(byIndex:true)` |
+| `Map<String, V>`                   | `@JsonKey(fromJson:…)`        | ✅ automatic value coercion |
 | JSON key mapping                   | `@JsonKey(name: ...)`         | `@RjKey(...)` or `.snakeCase` |
 | Add/rename a field                 | update class + annotation     | **update class only**         |
 | Nested models                      | `@JsonSerializable()` on each | `@RjSafeParsable()` on each   |
@@ -75,7 +81,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  rj_safe_parser: ^0.2.0
+  rj_safe_parser: ^0.4.0
 
 dev_dependencies:
   build_runner: ^2.4.0
@@ -194,6 +200,8 @@ final map = user.toMap();
 | `String`      | any value — `.toString()` is called                                           |
 | `DateTime`    | `DateTime`, Unix `int`/`double` (seconds or milliseconds), ISO-8601 `String`  |
 | `Uri`         | `Uri`, any `String`                                                           |
+| `Enum`        | `.name` `String` (default), or `int` index when `@RjEnum(byIndex: true)`      |
+| `Map<String, V>` | `Map` — each value coerced to `V`; missing key throws unless nullable     |
 | `List<T>`     | `List` — each element is coerced to `T`; missing key throws unless `List<T>?` |
 | `NestedModel` | `Map<String, dynamic>` — when annotated with `@RjSafeParsable()`              |
 
@@ -252,6 +260,42 @@ conversion (`downloadUrl` → `download_url`):
 @RjKey.snakeCase()
 final String downloadUrl;
 ```
+
+---
+
+## `@RjEnum` — enum serialisation
+
+Dart `enum` fields are supported out of the box. By default the JSON value is
+matched against the enum constant's `.name` string:
+
+```dart
+enum Status { active, inactive, pending }
+
+@RjSafeParsable()
+class Order {
+  @RjEnum()                     // 'active' → Status.active
+  final Status status;
+}
+```
+
+Use `@RjEnum(byIndex: true)` to match by ordinal position instead:
+
+```dart
+enum Priority { low, medium, high }
+
+@RjSafeParsable()
+class Task {
+  @RjEnum(byIndex: true)        // 0 → Priority.low, 2 → Priority.high
+  final Priority priority;
+}
+```
+
+Nullable enum fields (`Status?`) work as expected — absent key or explicit
+`null` yields `null`. `toMap()` serialises back to `.name` (default) or
+`.index` (when `byIndex: true`).
+
+If the annotation is omitted from an enum field the generator defaults to
+by-name matching — `@RjEnum()` is optional when `byIndex: false`.
 
 ---
 

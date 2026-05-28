@@ -1,3 +1,70 @@
+## 0.4.0
+
+**Phase 2a — `enum` support and `Map<String, V>` support**
+
+### New: `enum` field support
+
+Dart `enum` fields are now fully supported — annotate with `@RjEnum()` or
+leave it bare for by-name matching, or use `@RjEnum(byIndex: true)` for
+ordinal matching.
+
+```dart
+enum Status { active, inactive, pending }
+enum Priority { low, medium, high }
+
+@RjSafeParsable()
+class Task {
+  @RjEnum()               // 'active' → Status.active
+  final Status status;
+
+  @RjEnum(byIndex: true)  // 0 → Priority.low, 2 → Priority.high
+  final Priority priority;
+}
+```
+
+- By name (default): JSON value must be the `.name` string of an enum constant.
+- By index: JSON value must be an `int` (or numeric string) matching the
+  constant's position in `values`.
+- Nullable `Status?` fields: absent key or explicit `null` → `null`.
+- `toMap()` serialises back to `.name` or `.index` automatically.
+- Runtime: new `rjCoerceEnum` / `rjCoerceEnumNullable` helpers in `rj_converters.dart`.
+- Schema: new `RjEnumSchema` in `rj_schema.dart` carries the `values` list,
+  `byIndex` flag, `jsonKey`, and `isNullable`.
+
+### New: `Map<String, V>` field support
+
+Fields typed as `Map<String, V>` are now generated and parsed correctly.
+The map's values are individually coerced using the same smart-coercion
+engine as all other fields.
+
+```dart
+@RjSafeParsable()
+class Config {
+  final Map<String, String>  labels;   // {'env': 'prod'}
+  final Map<String, int>     counts;   // {'retry': '3'} → {'retry': 3}
+  final Map<String, bool>    flags;    // {'darkMode': 1} → {'darkMode': true}
+  final Map<String, double>? rates;    // nullable, absent → null
+}
+```
+
+- Only `Map<String, V>` is supported (JSON has string-only keys); using
+  any other key type raises a code-generation error.
+- Values are coerced using the same rules as their scalar counterparts.
+- `toMap()` serialises map values (handles `DateTime`, `Uri`, nested models).
+- Error paths include the map entry key: `scores.alice` for a bad entry.
+- Runtime: new `rjCoerceMap` / `rjCoerceMapNullable` helpers.
+- Schema: new `RjMapSchema` in `rj_schema.dart`.
+
+### Other changes
+
+- Generator now accepts a `FieldElement?` parameter in `_schemaExpression`
+  so enum and map schemas can read field-level annotations.
+- `_jsonKeyOf` in parser handles all five schema types cleanly.
+- Full test coverage for both features — runtime tests only, no
+  `build_runner` required.
+
+---
+
 ## 0.2.0
 
 **Phase 1 — Foundation fixes**
