@@ -90,12 +90,15 @@ class RjSafeMapParser {
   /// Returns the JSON key to look up in the source map for a given schema entry.
   /// Falls back to the Dart field name when no custom key was set.
   String _jsonKeyOf(RjFieldSchema schema, String dartField) {
-    if (schema is RjTypeSchema && schema.jsonKey.isNotEmpty)
+    if (schema is RjTypeSchema && schema.jsonKey.isNotEmpty) {
       return schema.jsonKey;
-    if (schema is RjListSchema && schema.jsonKey.isNotEmpty)
+    }
+    if (schema is RjListSchema && schema.jsonKey.isNotEmpty) {
       return schema.jsonKey;
-    if (schema is RjObjectSchema && schema.jsonKey.isNotEmpty)
+    }
+    if (schema is RjObjectSchema && schema.jsonKey.isNotEmpty) {
       return schema.jsonKey;
+    }
     return dartField;
   }
 
