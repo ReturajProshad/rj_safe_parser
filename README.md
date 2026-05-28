@@ -75,7 +75,7 @@ Add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  rj_safe_parser: ^0.3.0
+  rj_safe_parser: ^0.2.0
 
 dev_dependencies:
   build_runner: ^2.4.0
